@@ -1,0 +1,701 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+deleted file mode 120000
+index 361eb78..0000000
+--- a/CHANGELOG.md
++++ /dev/null
+@@ -1,20 +0,0 @@
+-## Development release:
+-
+-
+-## Current release:
+-
+-- [CHANGELOG-1.11.md](https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG-1.11.md)
+-
+-## Older releases:
+-
+-- [CHANGELOG-1.10.md](https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG-1.10.md)
+-- [CHANGELOG-1.9.md](https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG-1.9.md)
+-- [CHANGELOG-1.8.md](https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG-1.8.md)
+-- [CHANGELOG-1.7.md](https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG-1.7.md)
+-- [CHANGELOG-1.6.md](https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG-1.6.md)
+-- [CHANGELOG-1.5.md](https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG-1.5.md)
+-- [CHANGELOG-1.4.md](https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG-1.4.md)
+-- [CHANGELOG-1.3.md](https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG-1.3.md)
+-- [CHANGELOG-1.2.md](https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG-1.2.md)
+-
+-[![Analytics](https://kubernetes-site.appspot.com/UA-36037335-10/GitHub/CHANGELOG.md?pixel)]()
+diff --git a/cluster/addons/kube-proxy/kube-proxy-ds.yaml b/cluster/addons/kube-proxy/kube-proxy-ds.yaml
+index d11765b..dbdb44e 100644
+--- a/cluster/addons/kube-proxy/kube-proxy-ds.yaml
++++ b/cluster/addons/kube-proxy/kube-proxy-ds.yaml
+@@ -42,7 +42,7 @@ spec:
+         command:
+         - /bin/sh
+         - -c
+-        - kube-proxy {{cluster_cidr}} --resource-container="" --oom-score-adj=-998 {{params}} 1>>/var/log/kube-proxy.log 2>&1
++        - kube-proxy {{cluster_cidr}} --oom-score-adj=-998 {{params}} 1>>/var/log/kube-proxy.log 2>&1
+         env:
+         - name: KUBERNETES_SERVICE_HOST
+           value: {{kubernetes_service_host_env_value}}
+diff --git a/cluster/gce/manifests/kube-proxy.manifest b/cluster/gce/manifests/kube-proxy.manifest
+index 821eefe..0dcc3c5 100644
+--- a/cluster/gce/manifests/kube-proxy.manifest
++++ b/cluster/gce/manifests/kube-proxy.manifest
+@@ -29,7 +29,7 @@ spec:
+     command:
+     - /bin/sh
+     - -c
+-    - exec kube-proxy {{api_servers_with_port}} {{kubeconfig}} {{cluster_cidr}} --resource-container="" --oom-score-adj=-998 {{params}} 1>>/var/log/kube-proxy.log 2>&1
++    - exec kube-proxy {{api_servers_with_port}} {{kubeconfig}} {{cluster_cidr}} --oom-score-adj=-998 {{params}} 1>>/var/log/kube-proxy.log 2>&1
+     {{container_env}}
+     {{kube_cache_mutation_detector_env_name}}
+       {{kube_cache_mutation_detector_env_value}}
+diff --git a/cmd/kube-proxy/app/BUILD b/cmd/kube-proxy/app/BUILD
+index eab363f..d24318a 100644
+--- a/cmd/kube-proxy/app/BUILD
++++ b/cmd/kube-proxy/app/BUILD
+@@ -38,7 +38,6 @@ go_library(
+         "//pkg/util/mount:go_default_library",
+         "//pkg/util/node:go_default_library",
+         "//pkg/util/oom:go_default_library",
+-        "//pkg/util/resourcecontainer:go_default_library",
+         "//pkg/util/sysctl:go_default_library",
+         "//pkg/version:go_default_library",
+         "//pkg/version/verflag:go_default_library",
+diff --git a/cmd/kube-proxy/app/server.go b/cmd/kube-proxy/app/server.go
+index 7ee8e15..d5ca3b9 100644
+--- a/cmd/kube-proxy/app/server.go
++++ b/cmd/kube-proxy/app/server.go
+@@ -69,7 +69,6 @@ import (
+ 	utilipvs "k8s.io/kubernetes/pkg/util/ipvs"
+ 	utilnode "k8s.io/kubernetes/pkg/util/node"
+ 	"k8s.io/kubernetes/pkg/util/oom"
+-	"k8s.io/kubernetes/pkg/util/resourcecontainer"
+ 	"k8s.io/kubernetes/pkg/version"
+ 	"k8s.io/kubernetes/pkg/version/verflag"
+ 	"k8s.io/utils/exec"
+@@ -136,8 +135,6 @@ func (o *Options) AddFlags(fs *pflag.FlagSet) {
+ 	fs.Var(utilflag.IPVar{Val: &o.config.HealthzBindAddress}, "healthz-bind-address", "The IP address and port for the health check server to serve on (set to `0.0.0.0` for all IPv4 interfaces and `::` for all IPv6 interfaces)")
+ 	fs.Var(utilflag.IPVar{Val: &o.config.MetricsBindAddress}, "metrics-bind-address", "The IP address and port for the metrics server to serve on (set to `0.0.0.0` for all IPv4 interfaces and `::` for all IPv6 interfaces)")
+ 	fs.Int32Var(o.config.OOMScoreAdj, "oom-score-adj", utilpointer.Int32PtrDerefOr(o.config.OOMScoreAdj, int32(qos.KubeProxyOOMScoreAdj)), "The oom-score-adj value for kube-proxy process. Values must be within the range [-1000, 1000]")
+-	fs.StringVar(&o.config.ResourceContainer, "resource-container", o.config.ResourceContainer, "Absolute name of the resource-only container to create and run the Kube-proxy in (Default: /kube-proxy).")
+-	fs.MarkDeprecated("resource-container", "This feature will be removed in a later release.")
+ 	fs.StringVar(&o.config.ClientConnection.Kubeconfig, "kubeconfig", o.config.ClientConnection.Kubeconfig, "Path to kubeconfig file with authorization information (the master location is set by the master flag).")
+ 	fs.Var(utilflag.PortRangeVar{Val: &o.config.PortRange}, "proxy-port-range", "Range of host ports (beginPort-endPort, single port or beginPort+offset, inclusive) that may be consumed in order to proxy service traffic. If (unspecified, 0, or 0-0) then ports will be randomly chosen.")
+ 	fs.StringVar(&o.config.HostnameOverride, "hostname-override", o.config.HostnameOverride, "If non-empty, will use this string as identification instead of the actual hostname.")
+@@ -395,7 +392,6 @@ type ProxyServer struct {
+ 	MetricsBindAddress     string
+ 	EnableProfiling        bool
+ 	OOMScoreAdj            *int32
+-	ResourceContainer      string
+ 	ConfigSyncPeriod       time.Duration
+ 	ServiceEventHandler    config.ServiceHandler
+ 	EndpointsEventHandler  config.EndpointsHandler
+@@ -465,15 +461,6 @@ func (s *ProxyServer) Run() error {
+ 		}
+ 	}
+ 
+-	if len(s.ResourceContainer) != 0 {
+-		// Run in its own container.
+-		if err := resourcecontainer.RunInResourceContainer(s.ResourceContainer); err != nil {
+-			glog.Warningf("Failed to start in resource-only container %q: %v", s.ResourceContainer, err)
+-		} else {
+-			glog.V(2).Infof("Running in resource-only container %q", s.ResourceContainer)
+-		}
+-	}
+-
+ 	if s.Broadcaster != nil && s.EventClient != nil {
+ 		s.Broadcaster.StartRecordingToSink(&v1core.EventSinkImpl{Interface: s.EventClient.Events("")})
+ 	}
+diff --git a/cmd/kube-proxy/app/server_others.go b/cmd/kube-proxy/app/server_others.go
+index d290357..74b70e0 100644
+--- a/cmd/kube-proxy/app/server_others.go
++++ b/cmd/kube-proxy/app/server_others.go
+@@ -275,7 +275,6 @@ func newProxyServer(
+ 		MetricsBindAddress:     config.MetricsBindAddress,
+ 		EnableProfiling:        config.EnableProfiling,
+ 		OOMScoreAdj:            config.OOMScoreAdj,
+-		ResourceContainer:      config.ResourceContainer,
+ 		ConfigSyncPeriod:       config.ConfigSyncPeriod.Duration,
+ 		ServiceEventHandler:    serviceEventHandler,
+ 		EndpointsEventHandler:  endpointsEventHandler,
+diff --git a/cmd/kube-proxy/app/server_test.go b/cmd/kube-proxy/app/server_test.go
+index be704cc..3146763 100644
+--- a/cmd/kube-proxy/app/server_test.go
++++ b/cmd/kube-proxy/app/server_test.go
+@@ -207,7 +207,6 @@ metricsBindAddress: "%s"
+ mode: "%s"
+ oomScoreAdj: 17
+ portRange: "2-7"
+-resourceContainer: /foo
+ udpIdleTimeout: 123ms
+ nodePortAddresses:
+   - "10.20.30.40/16"
+@@ -323,7 +322,6 @@ nodePortAddresses:
+ 			Mode:               kubeproxyconfig.ProxyMode(tc.mode),
+ 			OOMScoreAdj:        utilpointer.Int32Ptr(17),
+ 			PortRange:          "2-7",
+-			ResourceContainer:  "/foo",
+ 			UDPIdleTimeout:     metav1.Duration{Duration: 123 * time.Millisecond},
+ 			NodePortAddresses:  []string{"10.20.30.40/16", "fd00:1::0/64"},
+ 		}
+diff --git a/cmd/kube-proxy/app/server_windows.go b/cmd/kube-proxy/app/server_windows.go
+index 7a501eb..3939ce2 100644
+--- a/cmd/kube-proxy/app/server_windows.go
++++ b/cmd/kube-proxy/app/server_windows.go
+@@ -158,7 +158,6 @@ func newProxyServer(config *proxyconfigapi.KubeProxyConfiguration, cleanupAndExi
+ 		MetricsBindAddress:    config.MetricsBindAddress,
+ 		EnableProfiling:       config.EnableProfiling,
+ 		OOMScoreAdj:           config.OOMScoreAdj,
+-		ResourceContainer:     config.ResourceContainer,
+ 		ConfigSyncPeriod:      config.ConfigSyncPeriod.Duration,
+ 		ServiceEventHandler:   serviceEventHandler,
+ 		EndpointsEventHandler: endpointsEventHandler,
+diff --git a/cmd/kubeadm/app/util/config/testdata/conversion/master/internal.yaml b/cmd/kubeadm/app/util/config/testdata/conversion/master/internal.yaml
+index 9ad6145..8f41081 100644
+--- a/cmd/kubeadm/app/util/config/testdata/conversion/master/internal.yaml
++++ b/cmd/kubeadm/app/util/config/testdata/conversion/master/internal.yaml
+@@ -60,7 +60,6 @@ ComponentConfigs:
+     NodePortAddresses: null
+     OOMScoreAdj: -999
+     PortRange: ""
+-    ResourceContainer: /kube-proxy
+     UDPIdleTimeout: 250ms
+   Kubelet:
+     Address: 1.2.3.4
+diff --git a/cmd/kubeadm/app/util/config/testdata/conversion/master/v1alpha2.yaml b/cmd/kubeadm/app/util/config/testdata/conversion/master/v1alpha2.yaml
+index b5ffea7..ee9ee93 100644
+--- a/cmd/kubeadm/app/util/config/testdata/conversion/master/v1alpha2.yaml
++++ b/cmd/kubeadm/app/util/config/testdata/conversion/master/v1alpha2.yaml
+@@ -63,7 +63,6 @@ kubeProxy:
+     nodePortAddresses: null
+     oomScoreAdj: -999
+     portRange: ""
+-    resourceContainer: /kube-proxy
+     udpIdleTimeout: 250ms
+ kubeletConfiguration:
+   baseConfig:
+diff --git a/cmd/kubeadm/app/util/config/testdata/conversion/master/v1alpha3.yaml b/cmd/kubeadm/app/util/config/testdata/conversion/master/v1alpha3.yaml
+index 4c9aadb..2fd4a1d 100644
+--- a/cmd/kubeadm/app/util/config/testdata/conversion/master/v1alpha3.yaml
++++ b/cmd/kubeadm/app/util/config/testdata/conversion/master/v1alpha3.yaml
+@@ -79,7 +79,6 @@ mode: iptables
+ nodePortAddresses: null
+ oomScoreAdj: -999
+ portRange: ""
+-resourceContainer: /kube-proxy
+ udpIdleTimeout: 250ms
+ ---
+ address: 1.2.3.4
+diff --git a/cmd/kubeadm/app/util/config/testdata/defaulting/master/defaulted.yaml b/cmd/kubeadm/app/util/config/testdata/defaulting/master/defaulted.yaml
+index 78242aa..08dab42 100644
+--- a/cmd/kubeadm/app/util/config/testdata/defaulting/master/defaulted.yaml
++++ b/cmd/kubeadm/app/util/config/testdata/defaulting/master/defaulted.yaml
+@@ -74,7 +74,6 @@ mode: ""
+ nodePortAddresses: null
+ oomScoreAdj: -999
+ portRange: ""
+-resourceContainer: /kube-proxy
+ udpIdleTimeout: 250ms
+ ---
+ address: 0.0.0.0
+diff --git a/pkg/apis/apps/v1/zz_generated.defaults.go b/pkg/apis/apps/v1/zz_generated.defaults.go
+index 4b541a3..1df775a 100644
+--- a/pkg/apis/apps/v1/zz_generated.defaults.go
++++ b/pkg/apis/apps/v1/zz_generated.defaults.go
+@@ -179,6 +179,7 @@ func SetObjectDefaults_DaemonSet(in *v1.DaemonSet) {
+ 			}
+ 		}
+ 	}
++	corev1.SetDefaults_ResourceList(&in.Spec.Template.Spec.Overhead)
+ }
+ 
+ func SetObjectDefaults_DaemonSetList(in *v1.DaemonSetList) {
+@@ -326,6 +327,7 @@ func SetObjectDefaults_Deployment(in *v1.Deployment) {
+ 			}
+ 		}
+ 	}
++	corev1.SetDefaults_ResourceList(&in.Spec.Template.Spec.Overhead)
+ }
+ 
+ func SetObjectDefaults_DeploymentList(in *v1.DeploymentList) {
+@@ -473,6 +475,7 @@ func SetObjectDefaults_ReplicaSet(in *v1.ReplicaSet) {
+ 			}
+ 		}
+ 	}
++	corev1.SetDefaults_ResourceList(&in.Spec.Template.Spec.Overhead)
+ }
+ 
+ func SetObjectDefaults_ReplicaSetList(in *v1.ReplicaSetList) {
+@@ -620,6 +623,7 @@ func SetObjectDefaults_StatefulSet(in *v1.StatefulSet) {
+ 			}
+ 		}
+ 	}
++	corev1.SetDefaults_ResourceList(&in.Spec.Template.Spec.Overhead)
+ 	for i := range in.Spec.VolumeClaimTemplates {
+ 		a := &in.Spec.VolumeClaimTemplates[i]
+ 		corev1.SetDefaults_PersistentVolumeClaim(a)
+diff --git a/pkg/apis/apps/v1beta1/zz_generated.defaults.go b/pkg/apis/apps/v1beta1/zz_generated.defaults.go
+index 656f61e..bf285be 100644
+--- a/pkg/apis/apps/v1beta1/zz_generated.defaults.go
++++ b/pkg/apis/apps/v1beta1/zz_generated.defaults.go
+@@ -175,6 +175,7 @@ func SetObjectDefaults_Deployment(in *v1beta1.Deployment) {
+ 			}
+ 		}
+ 	}
++	v1.SetDefaults_ResourceList(&in.Spec.Template.Spec.Overhead)
+ }
+ 
+ func SetObjectDefaults_DeploymentList(in *v1beta1.DeploymentList) {
+@@ -322,6 +323,7 @@ func SetObjectDefaults_StatefulSet(in *v1beta1.StatefulSet) {
+ 			}
+ 		}
+ 	}
++	v1.SetDefaults_ResourceList(&in.Spec.Template.Spec.Overhead)
+ 	for i := range in.Spec.VolumeClaimTemplates {
+ 		a := &in.Spec.VolumeClaimTemplates[i]
+ 		v1.SetDefaults_PersistentVolumeClaim(a)
+diff --git a/pkg/apis/apps/v1beta2/zz_generated.defaults.go b/pkg/apis/apps/v1beta2/zz_generated.defaults.go
+index 713bcaa..dedf4c7 100644
+--- a/pkg/apis/apps/v1beta2/zz_generated.defaults.go
++++ b/pkg/apis/apps/v1beta2/zz_generated.defaults.go
+@@ -179,6 +179,7 @@ func SetObjectDefaults_DaemonSet(in *v1beta2.DaemonSet) {
+ 			}
+ 		}
+ 	}
++	v1.SetDefaults_ResourceList(&in.Spec.Template.Spec.Overhead)
+ }
+ 
+ func SetObjectDefaults_DaemonSetList(in *v1beta2.DaemonSetList) {
+@@ -326,6 +327,7 @@ func SetObjectDefaults_Deployment(in *v1beta2.Deployment) {
+ 			}
+ 		}
+ 	}
++	v1.SetDefaults_ResourceList(&in.Spec.Template.Spec.Overhead)
+ }
+ 
+ func SetObjectDefaults_DeploymentList(in *v1beta2.DeploymentList) {
+@@ -473,6 +475,7 @@ func SetObjectDefaults_ReplicaSet(in *v1beta2.ReplicaSet) {
+ 			}
+ 		}
+ 	}
++	v1.SetDefaults_ResourceList(&in.Spec.Template.Spec.Overhead)
+ }
+ 
+ func SetObjectDefaults_ReplicaSetList(in *v1beta2.ReplicaSetList) {
+@@ -620,6 +623,7 @@ func SetObjectDefaults_StatefulSet(in *v1beta2.StatefulSet) {
+ 			}
+ 		}
+ 	}
++	v1.SetDefaults_ResourceList(&in.Spec.Template.Spec.Overhead)
+ 	for i := range in.Spec.VolumeClaimTemplates {
+ 		a := &in.Spec.VolumeClaimTemplates[i]
+ 		v1.SetDefaults_PersistentVolumeClaim(a)
+diff --git a/pkg/apis/batch/v1/zz_generated.defaults.go b/pkg/apis/batch/v1/zz_generated.defaults.go
+index 201e3b2..97ead30 100644
+--- a/pkg/apis/batch/v1/zz_generated.defaults.go
++++ b/pkg/apis/batch/v1/zz_generated.defaults.go
+@@ -173,6 +173,7 @@ func SetObjectDefaults_Job(in *v1.Job) {
+ 			}
+ 		}
+ 	}
++	corev1.SetDefaults_ResourceList(&in.Spec.Template.Spec.Overhead)
+ }
+ 
+ func SetObjectDefaults_JobList(in *v1.JobList) {
+diff --git a/pkg/apis/batch/v1beta1/zz_generated.defaults.go b/pkg/apis/batch/v1beta1/zz_generated.defaults.go
+index d90031c..ebbcc34 100644
+--- a/pkg/apis/batch/v1beta1/zz_generated.defaults.go
++++ b/pkg/apis/batch/v1beta1/zz_generated.defaults.go
+@@ -174,6 +174,7 @@ func SetObjectDefaults_CronJob(in *v1beta1.CronJob) {
+ 			}
+ 		}
+ 	}
++	v1.SetDefaults_ResourceList(&in.Spec.JobTemplate.Spec.Template.Spec.Overhead)
+ }
+ 
+ func SetObjectDefaults_CronJobList(in *v1beta1.CronJobList) {
+@@ -320,4 +321,5 @@ func SetObjectDefaults_JobTemplate(in *v1beta1.JobTemplate) {
+ 			}
+ 		}
+ 	}
++	v1.SetDefaults_ResourceList(&in.Template.Spec.Template.Spec.Overhead)
+ }
+diff --git a/pkg/apis/batch/v2alpha1/zz_generated.defaults.go b/pkg/apis/batch/v2alpha1/zz_generated.defaults.go
+index 367c56b..5cbac95 100644
+--- a/pkg/apis/batch/v2alpha1/zz_generated.defaults.go
++++ b/pkg/apis/batch/v2alpha1/zz_generated.defaults.go
+@@ -174,6 +174,7 @@ func SetObjectDefaults_CronJob(in *v2alpha1.CronJob) {
+ 			}
+ 		}
+ 	}
++	v1.SetDefaults_ResourceList(&in.Spec.JobTemplate.Spec.Template.Spec.Overhead)
+ }
+ 
+ func SetObjectDefaults_CronJobList(in *v2alpha1.CronJobList) {
+@@ -320,4 +321,5 @@ func SetObjectDefaults_JobTemplate(in *v2alpha1.JobTemplate) {
+ 			}
+ 		}
+ 	}
++	v1.SetDefaults_ResourceList(&in.Template.Spec.Template.Spec.Overhead)
+ }
+diff --git a/pkg/apis/core/v1/zz_generated.conversion.go b/pkg/apis/core/v1/zz_generated.conversion.go
+index 7bfbcf0..c13741e 100644
+--- a/pkg/apis/core/v1/zz_generated.conversion.go
++++ b/pkg/apis/core/v1/zz_generated.conversion.go
+@@ -5550,6 +5550,7 @@ func autoConvert_v1_PodSpec_To_core_PodSpec(in *v1.PodSpec, out *core.PodSpec, s
+ 	out.DNSConfig = (*core.PodDNSConfig)(unsafe.Pointer(in.DNSConfig))
+ 	out.ReadinessGates = *(*[]core.PodReadinessGate)(unsafe.Pointer(&in.ReadinessGates))
+ 	out.RuntimeClassName = (*string)(unsafe.Pointer(in.RuntimeClassName))
++	// WARNING: in.Overhead requires manual conversion: does not exist in peer-type
+ 	return nil
+ }
+ 
+diff --git a/pkg/apis/core/v1/zz_generated.defaults.go b/pkg/apis/core/v1/zz_generated.defaults.go
+index 00e0b38..d34c5ab 100644
+--- a/pkg/apis/core/v1/zz_generated.defaults.go
++++ b/pkg/apis/core/v1/zz_generated.defaults.go
+@@ -306,6 +306,7 @@ func SetObjectDefaults_Pod(in *v1.Pod) {
+ 			}
+ 		}
+ 	}
++	SetDefaults_ResourceList(&in.Spec.Overhead)
+ }
+ 
+ func SetObjectDefaults_PodList(in *v1.PodList) {
+@@ -452,6 +453,7 @@ func SetObjectDefaults_PodTemplate(in *v1.PodTemplate) {
+ 			}
+ 		}
+ 	}
++	SetDefaults_ResourceList(&in.Template.Spec.Overhead)
+ }
+ 
+ func SetObjectDefaults_PodTemplateList(in *v1.PodTemplateList) {
+@@ -600,6 +602,7 @@ func SetObjectDefaults_ReplicationController(in *v1.ReplicationController) {
+ 				}
+ 			}
+ 		}
++		SetDefaults_ResourceList(&in.Spec.Template.Spec.Overhead)
+ 	}
+ }
+ 
+diff --git a/pkg/apis/extensions/v1beta1/zz_generated.defaults.go b/pkg/apis/extensions/v1beta1/zz_generated.defaults.go
+index 0fa4c32..9201b29 100644
+--- a/pkg/apis/extensions/v1beta1/zz_generated.defaults.go
++++ b/pkg/apis/extensions/v1beta1/zz_generated.defaults.go
+@@ -181,6 +181,7 @@ func SetObjectDefaults_DaemonSet(in *v1beta1.DaemonSet) {
+ 			}
+ 		}
+ 	}
++	v1.SetDefaults_ResourceList(&in.Spec.Template.Spec.Overhead)
+ }
+ 
+ func SetObjectDefaults_DaemonSetList(in *v1beta1.DaemonSetList) {
+@@ -328,6 +329,7 @@ func SetObjectDefaults_Deployment(in *v1beta1.Deployment) {
+ 			}
+ 		}
+ 	}
++	v1.SetDefaults_ResourceList(&in.Spec.Template.Spec.Overhead)
+ }
+ 
+ func SetObjectDefaults_DeploymentList(in *v1beta1.DeploymentList) {
+@@ -497,6 +499,7 @@ func SetObjectDefaults_ReplicaSet(in *v1beta1.ReplicaSet) {
+ 			}
+ 		}
+ 	}
++	v1.SetDefaults_ResourceList(&in.Spec.Template.Spec.Overhead)
+ }
+ 
+ func SetObjectDefaults_ReplicaSetList(in *v1beta1.ReplicaSetList) {
+diff --git a/pkg/kubemark/hollow_proxy.go b/pkg/kubemark/hollow_proxy.go
+index 8af54ae..0a294d2 100644
+--- a/pkg/kubemark/hollow_proxy.go
++++ b/pkg/kubemark/hollow_proxy.go
+@@ -125,7 +125,6 @@ func NewHollowProxyOrDie(
+ 			ProxyMode:             "fake",
+ 			NodeRef:               nodeRef,
+ 			OOMScoreAdj:           utilpointer.Int32Ptr(0),
+-			ResourceContainer:     "",
+ 			ConfigSyncPeriod:      30 * time.Second,
+ 			ServiceEventHandler:   serviceHandler,
+ 			EndpointsEventHandler: endpointsHandler,
+diff --git a/pkg/proxy/apis/config/fuzzer/fuzzer.go b/pkg/proxy/apis/config/fuzzer/fuzzer.go
+index e64f60b..343f9ba 100644
+--- a/pkg/proxy/apis/config/fuzzer/fuzzer.go
++++ b/pkg/proxy/apis/config/fuzzer/fuzzer.go
+@@ -44,7 +44,6 @@ func Funcs(codecs runtimeserializer.CodecFactory) []interface{} {
+ 			obj.IPTables.MasqueradeBit = utilpointer.Int32Ptr(c.Int31())
+ 			obj.MetricsBindAddress = fmt.Sprintf("%d.%d.%d.%d:%d", c.Intn(256), c.Intn(256), c.Intn(256), c.Intn(256), c.Intn(65536))
+ 			obj.OOMScoreAdj = utilpointer.Int32Ptr(c.Int31())
+-			obj.ResourceContainer = "foo"
+ 			obj.ClientConnection.ContentType = "bar"
+ 			obj.NodePortAddresses = []string{"1.2.3.0/24"}
+ 		},
+diff --git a/pkg/proxy/apis/config/types.go b/pkg/proxy/apis/config/types.go
+index 7df427a..7f3f20a 100644
+--- a/pkg/proxy/apis/config/types.go
++++ b/pkg/proxy/apis/config/types.go
+@@ -121,9 +121,6 @@ type KubeProxyConfiguration struct {
+ 	// portRange is the range of host ports (beginPort-endPort, inclusive) that may be consumed
+ 	// in order to proxy service traffic. If unspecified (0-0) then ports will be randomly chosen.
+ 	PortRange string
+-	// resourceContainer is the absolute name of the resource-only container to create and run
+-	// the Kube-proxy in (Default: /kube-proxy).
+-	ResourceContainer string
+ 	// udpIdleTimeout is how long an idle UDP connection will be kept open (e.g. '250ms', '2s').
+ 	// Must be greater than 0. Only applicable for proxyMode=userspace.
+ 	UDPIdleTimeout metav1.Duration
+diff --git a/pkg/proxy/apis/config/v1alpha1/defaults.go b/pkg/proxy/apis/config/v1alpha1/defaults.go
+index b641774..a7a3862 100644
+--- a/pkg/proxy/apis/config/v1alpha1/defaults.go
++++ b/pkg/proxy/apis/config/v1alpha1/defaults.go
+@@ -51,9 +51,6 @@ func SetDefaults_KubeProxyConfiguration(obj *kubeproxyconfigv1alpha1.KubeProxyCo
+ 		temp := int32(qos.KubeProxyOOMScoreAdj)
+ 		obj.OOMScoreAdj = &temp
+ 	}
+-	if obj.ResourceContainer == "" {
+-		obj.ResourceContainer = "/kube-proxy"
+-	}
+ 	if obj.IPTables.SyncPeriod.Duration == 0 {
+ 		obj.IPTables.SyncPeriod = metav1.Duration{Duration: 30 * time.Second}
+ 	}
+diff --git a/pkg/proxy/apis/config/v1alpha1/zz_generated.conversion.go b/pkg/proxy/apis/config/v1alpha1/zz_generated.conversion.go
+index 0cf098c..acdaaf7 100644
+--- a/pkg/proxy/apis/config/v1alpha1/zz_generated.conversion.go
++++ b/pkg/proxy/apis/config/v1alpha1/zz_generated.conversion.go
+@@ -101,7 +101,6 @@ func autoConvert_v1alpha1_KubeProxyConfiguration_To_config_KubeProxyConfiguratio
+ 	out.OOMScoreAdj = (*int32)(unsafe.Pointer(in.OOMScoreAdj))
+ 	out.Mode = config.ProxyMode(in.Mode)
+ 	out.PortRange = in.PortRange
+-	out.ResourceContainer = in.ResourceContainer
+ 	out.UDPIdleTimeout = in.UDPIdleTimeout
+ 	if err := Convert_v1alpha1_KubeProxyConntrackConfiguration_To_config_KubeProxyConntrackConfiguration(&in.Conntrack, &out.Conntrack, s); err != nil {
+ 		return err
+@@ -136,7 +135,6 @@ func autoConvert_config_KubeProxyConfiguration_To_v1alpha1_KubeProxyConfiguratio
+ 	out.OOMScoreAdj = (*int32)(unsafe.Pointer(in.OOMScoreAdj))
+ 	out.Mode = v1alpha1.ProxyMode(in.Mode)
+ 	out.PortRange = in.PortRange
+-	out.ResourceContainer = in.ResourceContainer
+ 	out.UDPIdleTimeout = in.UDPIdleTimeout
+ 	if err := Convert_config_KubeProxyConntrackConfiguration_To_v1alpha1_KubeProxyConntrackConfiguration(&in.Conntrack, &out.Conntrack, s); err != nil {
+ 		return err
+diff --git a/pkg/scheduler/apis/config/v1alpha1/zz_generated.conversion.go b/pkg/scheduler/apis/config/v1alpha1/zz_generated.conversion.go
+index 6e15532..e926bf8 100644
+--- a/pkg/scheduler/apis/config/v1alpha1/zz_generated.conversion.go
++++ b/pkg/scheduler/apis/config/v1alpha1/zz_generated.conversion.go
+@@ -23,8 +23,10 @@ package v1alpha1
+ import (
+ 	unsafe "unsafe"
+ 
++	configv1alpha1 "k8s.io/apimachinery/pkg/apis/config/v1alpha1"
+ 	conversion "k8s.io/apimachinery/pkg/conversion"
+ 	runtime "k8s.io/apimachinery/pkg/runtime"
++	apisconfigv1alpha1 "k8s.io/apiserver/pkg/apis/config/v1alpha1"
+ 	v1alpha1 "k8s.io/kube-scheduler/config/v1alpha1"
+ 	config "k8s.io/kubernetes/pkg/scheduler/apis/config"
+ )
+@@ -108,14 +110,12 @@ func autoConvert_v1alpha1_KubeSchedulerConfiguration_To_config_KubeSchedulerConf
+ 	if err := Convert_v1alpha1_KubeSchedulerLeaderElectionConfiguration_To_config_KubeSchedulerLeaderElectionConfiguration(&in.LeaderElection, &out.LeaderElection, s); err != nil {
+ 		return err
+ 	}
+-	// TODO: Inefficient conversion - can we improve it?
+-	if err := s.Convert(&in.ClientConnection, &out.ClientConnection, 0); err != nil {
++	if err := configv1alpha1.Convert_v1alpha1_ClientConnectionConfiguration_To_config_ClientConnectionConfiguration(&in.ClientConnection, &out.ClientConnection, s); err != nil {
+ 		return err
+ 	}
+ 	out.HealthzBindAddress = in.HealthzBindAddress
+ 	out.MetricsBindAddress = in.MetricsBindAddress
+-	// TODO: Inefficient conversion - can we improve it?
+-	if err := s.Convert(&in.DebuggingConfiguration, &out.DebuggingConfiguration, 0); err != nil {
++	if err := apisconfigv1alpha1.Convert_v1alpha1_DebuggingConfiguration_To_config_DebuggingConfiguration(&in.DebuggingConfiguration, &out.DebuggingConfiguration, s); err != nil {
+ 		return err
+ 	}
+ 	out.DisablePreemption = in.DisablePreemption
+@@ -139,14 +139,12 @@ func autoConvert_config_KubeSchedulerConfiguration_To_v1alpha1_KubeSchedulerConf
+ 	if err := Convert_config_KubeSchedulerLeaderElectionConfiguration_To_v1alpha1_KubeSchedulerLeaderElectionConfiguration(&in.LeaderElection, &out.LeaderElection, s); err != nil {
+ 		return err
+ 	}
+-	// TODO: Inefficient conversion - can we improve it?
+-	if err := s.Convert(&in.ClientConnection, &out.ClientConnection, 0); err != nil {
++	if err := configv1alpha1.Convert_config_ClientConnectionConfiguration_To_v1alpha1_ClientConnectionConfiguration(&in.ClientConnection, &out.ClientConnection, s); err != nil {
+ 		return err
+ 	}
+ 	out.HealthzBindAddress = in.HealthzBindAddress
+ 	out.MetricsBindAddress = in.MetricsBindAddress
+-	// TODO: Inefficient conversion - can we improve it?
+-	if err := s.Convert(&in.DebuggingConfiguration, &out.DebuggingConfiguration, 0); err != nil {
++	if err := apisconfigv1alpha1.Convert_config_DebuggingConfiguration_To_v1alpha1_DebuggingConfiguration(&in.DebuggingConfiguration, &out.DebuggingConfiguration, s); err != nil {
+ 		return err
+ 	}
+ 	out.DisablePreemption = in.DisablePreemption
+@@ -162,8 +160,7 @@ func Convert_config_KubeSchedulerConfiguration_To_v1alpha1_KubeSchedulerConfigur
+ }
+ 
+ func autoConvert_v1alpha1_KubeSchedulerLeaderElectionConfiguration_To_config_KubeSchedulerLeaderElectionConfiguration(in *v1alpha1.KubeSchedulerLeaderElectionConfiguration, out *config.KubeSchedulerLeaderElectionConfiguration, s conversion.Scope) error {
+-	// TODO: Inefficient conversion - can we improve it?
+-	if err := s.Convert(&in.LeaderElectionConfiguration, &out.LeaderElectionConfiguration, 0); err != nil {
++	if err := apisconfigv1alpha1.Convert_v1alpha1_LeaderElectionConfiguration_To_config_LeaderElectionConfiguration(&in.LeaderElectionConfiguration, &out.LeaderElectionConfiguration, s); err != nil {
+ 		return err
+ 	}
+ 	out.LockObjectNamespace = in.LockObjectNamespace
+@@ -177,8 +174,7 @@ func Convert_v1alpha1_KubeSchedulerLeaderElectionConfiguration_To_config_KubeSch
+ }
+ 
+ func autoConvert_config_KubeSchedulerLeaderElectionConfiguration_To_v1alpha1_KubeSchedulerLeaderElectionConfiguration(in *config.KubeSchedulerLeaderElectionConfiguration, out *v1alpha1.KubeSchedulerLeaderElectionConfiguration, s conversion.Scope) error {
+-	// TODO: Inefficient conversion - can we improve it?
+-	if err := s.Convert(&in.LeaderElectionConfiguration, &out.LeaderElectionConfiguration, 0); err != nil {
++	if err := apisconfigv1alpha1.Convert_config_LeaderElectionConfiguration_To_v1alpha1_LeaderElectionConfiguration(&in.LeaderElectionConfiguration, &out.LeaderElectionConfiguration, s); err != nil {
+ 		return err
+ 	}
+ 	out.LockObjectNamespace = in.LockObjectNamespace
+diff --git a/pkg/util/BUILD b/pkg/util/BUILD
+index d80a383..ef98b5a 100644
+--- a/pkg/util/BUILD
++++ b/pkg/util/BUILD
+@@ -51,7 +51,6 @@ filegroup(
+         "//pkg/util/reflector/prometheus:all-srcs",
+         "//pkg/util/removeall:all-srcs",
+         "//pkg/util/resizefs:all-srcs",
+-        "//pkg/util/resourcecontainer:all-srcs",
+         "//pkg/util/rlimit:all-srcs",
+         "//pkg/util/selinux:all-srcs",
+         "//pkg/util/slice:all-srcs",
+diff --git a/pkg/util/resourcecontainer/BUILD b/pkg/util/resourcecontainer/BUILD
+deleted file mode 100644
+index 94cd8fd..0000000
+--- a/pkg/util/resourcecontainer/BUILD
++++ /dev/null
+@@ -1,35 +0,0 @@
+-package(default_visibility = ["//visibility:public"])
+-
+-load(
+-    "@io_bazel_rules_go//go:def.bzl",
+-    "go_library",
+-)
+-
+-go_library(
+-    name = "go_default_library",
+-    srcs = [
+-        "resource_container_linux.go",
+-        "resource_container_unsupported.go",
+-    ],
+-    importpath = "k8s.io/kubernetes/pkg/util/resourcecontainer",
+-    deps = select({
+-        "@io_bazel_rules_go//go/platform:linux": [
+-            "//vendor/github.com/opencontainers/runc/libcontainer/cgroups/fs:go_default_library",
+-            "//vendor/github.com/opencontainers/runc/libcontainer/configs:go_default_library",
+-        ],
+-        "//conditions:default": [],
+-    }),
+-)
+-
+-filegroup(
+-    name = "package-srcs",
+-    srcs = glob(["**"]),
+-    tags = ["automanaged"],
+-    visibility = ["//visibility:private"],
+-)
+-
+-filegroup(
+-    name = "all-srcs",
+-    srcs = [":package-srcs"],
+-    tags = ["automanaged"],
+-)
+diff --git a/pkg/util/resourcecontainer/resource_container_linux.go b/pkg/util/resourcecontainer/resource_container_linux.go
+deleted file mode 100644
+index 86477c5..0000000
+--- a/pkg/util/resourcecontainer/resource_container_linux.go
++++ /dev/null
+@@ -1,45 +0,0 @@
+-// +build linux
+-
+-/*
+-Copyright 2015 The Kubernetes Authors.
+-
+-Licensed under the Apache License, Version 2.0 (the "License");
+-you may not use this file except in compliance with the License.
+-You may obtain a copy of the License at
+-
+-    http://www.apache.org/licenses/LICENSE-2.0
+-
+-Unless required by applicable law or agreed to in writing, software
+-distributed under the License is distributed on an "AS IS" BASIS,
+-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+-See the License for the specific language governing permissions and
+-limitations under the License.
+-*/
+-
+-package resourcecontainer
+-
+-import (
+-	"os"
+-
+-	"github.com/opencontainers/runc/libcontainer/cgroups/fs"
+-	"github.com/opencontainers/runc/libcontainer/configs"
+-)
+-
+-// Creates resource-only containerName if it does not already exist and moves
+-// the current process to it.
+-//
+-// containerName must be an absolute container name.
+-func RunInResourceContainer(containerName string) error {
+-	allowAllDevices := true
+-	manager := fs.Manager{
+-		Cgroups: &configs.Cgroup{
+-			Parent: "/",
+-			Name:   containerName,
+-			Resources: &configs.Resources{
+-				AllowAllDevices: &allowAllDevices,
+-			},
+-		},
+-	}
+-
+-	return manager.Apply(os.Getpid())
+-}
+diff --git a/pkg/util/resourcecontainer/resource_container_unsupported.go b/pkg/util/resourcecontainer/resource_container_unsupported.go
+deleted file mode 100644
+index da47131..0000000
+--- a/pkg/util/resourcecontainer/resource_container_unsupported.go
++++ /dev/null
+@@ -1,27 +0,0 @@
+-// +build !linux
+-
+-/*
+-Copyright 2015 The Kubernetes Authors.
+-
+-Licensed under the Apache License, Version 2.0 (the "License");
+-you may not use this file except in compliance with the License.
+-You may obtain a copy of the License at
+-
+-    http://www.apache.org/licenses/LICENSE-2.0
+-
+-Unless required by applicable law or agreed to in writing, software
+-distributed under the License is distributed on an "AS IS" BASIS,
+-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+-See the License for the specific language governing permissions and
+-limitations under the License.
+-*/
+-
+-package resourcecontainer
+-
+-import (
+-	"errors"
+-)
+-
+-func RunInResourceContainer(containerName string) error {
+-	return errors.New("resource-only containers unsupported in this platform")
+-}
+diff --git a/staging/src/k8s.io/kube-proxy/config/v1alpha1/types.go b/staging/src/k8s.io/kube-proxy/config/v1alpha1/types.go
+index b9c370b..8c9b4f7 100644
+--- a/staging/src/k8s.io/kube-proxy/config/v1alpha1/types.go
++++ b/staging/src/k8s.io/kube-proxy/config/v1alpha1/types.go
+@@ -117,9 +117,6 @@ type KubeProxyConfiguration struct {
+ 	// portRange is the range of host ports (beginPort-endPort, inclusive) that may be consumed
+ 	// in order to proxy service traffic. If unspecified (0-0) then ports will be randomly chosen.
+ 	PortRange string `json:"portRange"`
+-	// resourceContainer is the bsolute name of the resource-only container to create and run
+-	// the Kube-proxy in (Default: /kube-proxy).
+-	ResourceContainer string `json:"resourceContainer"`
+ 	// udpIdleTimeout is how long an idle UDP connection will be kept open (e.g. '250ms', '2s').
+ 	// Must be greater than 0. Only applicable for proxyMode=userspace.
+ 	UDPIdleTimeout metav1.Duration `json:"udpIdleTimeout"`
